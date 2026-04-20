@@ -1,0 +1,58 @@
+version: 2
+
+models:
+  - name: ds_dim_category
+    description: Category dimension — 14 phenomenon types classified into risk groups
+    columns:
+      - name: category_id
+        description: Surrogate key
+        tests:
+          - unique
+          - not_null
+      - name: category_name
+        description: Original category name from source
+        tests:
+          - unique
+          - not_null
+      - name: category_group
+        description: "Risk classification: hazard, landmark, or anomaly"
+      - name: source_authority
+        description: Data source organization
+
+  - name: ds_dim_date
+    description: Calendar dimension derived from event dates
+    columns:
+      - name: date_id
+        description: Surrogate key
+        tests:
+          - unique
+          - not_null
+      - name: full_date
+        description: Full date value
+        tests:
+          - unique
+          - not_null
+
+  - name: ds_dim_location
+    description: Deduplicated coordinates with geohash
+    columns:
+      - name: location_id
+        description: Surrogate key
+        tests:
+          - unique
+          - not_null
+
+  - name: ds_fct_events
+    description: Fact table — one row per phenomenon event linked to dimensions
+    columns:
+      - name: event_id
+        description: Surrogate key
+        tests:
+          - not_null
+      - name: category_id
+        description: FK to ds_dim_category
+        tests:
+          - not_null
+          - relationships:
+              to: ref('ds_dim_category')
+              field: category_id

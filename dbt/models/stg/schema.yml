@@ -1,0 +1,33 @@
+version: 2
+
+sources:
+  - name: raw
+    description: Raw data loaded from the Strange Places v5.2 dataset
+    tables:
+      - name: strange_places
+        description: 354K georeferenced mysterious phenomena records
+
+models:
+  - name: stg_strange_places
+    description: Staging layer — raw data with no transformations, only type preservation
+    columns:
+      - name: category
+        description: Phenomenon type
+        tests:
+          - not_null
+      - name: latitude
+        description: Latitude coordinate
+        tests:
+          - not_null
+      - name: longitude
+        description: Longitude coordinate
+        tests:
+          - not_null
+      - name: name
+        description: Record title
+      - name: description
+        description: Detailed description
+      - name: date
+        description: Date of the event
+      - name: loaded_at
+        description: Timestamp when the record was loaded

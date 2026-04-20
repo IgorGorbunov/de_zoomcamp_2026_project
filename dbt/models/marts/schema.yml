@@ -1,0 +1,14 @@
+version: 2
+
+models:
+  - name: marts_region_profile
+    description: Region profile — event density and risk index per geo-hash region and category
+
+  - name: marts_time_trends
+    description: Time trends — seasonality and year-over-year event dynamics per category
+
+  - name: marts_geo_heatmap
+    description: Heatmap data — event counts aggregated by geo-grid cells and category group
+
+  - name: marts_region_comparison
+    description: Region comparison — hazard vs. landmark vs. anomaly breakdown per region
