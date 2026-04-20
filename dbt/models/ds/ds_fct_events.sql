@@ -35,4 +35,7 @@ left join dim_location l
     on e.latitude = l.latitude
     and e.longitude = l.longitude
 left join dim_date d
-    on cast(e.date as date) = d.full_date
+    on case
+        when e.date ~ '^\d{4}-\d{2}-\d{2}$' then cast(e.date as date)
+        else null
+    end = d.full_date

@@ -4,6 +4,8 @@ with dates as (
     from {{ ref('stg_strange_places') }}
     where date is not null
       and date != ''
+      and date ~ '^\d{4}-\d{2}-\d{2}$'
+      and cast(left(date, 4) as int) between 1000 and 2100
 )
 
 select

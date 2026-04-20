@@ -3,6 +3,7 @@ version: 2
 sources:
   - name: raw
     description: Raw data loaded from the Strange Places v5.2 dataset
+    schema: raw
     tables:
       - name: strange_places
         description: 354K georeferenced mysterious phenomena records
