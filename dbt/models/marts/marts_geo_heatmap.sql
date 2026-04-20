@@ -12,8 +12,8 @@ with events as (
 
 select
     geo_hash,
-    round(avg(latitude), 4) as latitude,
-    round(avg(longitude), 4) as longitude,
+    round(avg(latitude)::numeric, 4) as latitude,
+    round(avg(longitude)::numeric, 4) as longitude,
     category_group,
     count(*) as event_count
 from events
