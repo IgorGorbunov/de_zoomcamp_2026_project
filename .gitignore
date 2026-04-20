@@ -1,1 +1,7 @@
 claude.md
+source/strange_places_v5.2.json
+.claude
+.venv
+.env
+dbt\strange_places_dbt\logs\dbt.log
+dbt\strange_places_dbt\.user.yml
