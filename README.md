@@ -1,17 +1,182 @@
 # Strange Places Analytics Dashboard
 
-A data warehouse project built around the [Strange Places v5.2](https://www.kaggle.com/datasets/lucassteuber/strange-places-mysterious-phenomena) dataset — 354,770 georeferenced records of mysterious and natural phenomena worldwide.
+A data warehouse and analytics project built around the [Strange Places v5.2](https://www.kaggle.com/datasets/lucassteuber/strange-places-mysterious-phenomena) dataset — 354,770 georeferenced records of mysterious and natural phenomena worldwide.
+
+## Problem description
+
+When evaluating a territory — for insurance, construction, tourism, or research — understanding its **risk and feature profile** requires combining data from dozens of separate sources (NASA, NOAA, USGS, BFRO, NUFORC, etc.). There is no single tool that overlays natural hazards (tornadoes, earthquakes, volcanoes, storms) with unique territorial features (caves, thermal springs, megaliths, shipwrecks) and anomalous activity (UFO sightings, bigfoot sightings, haunted places).
+
+This project builds a unified analytical platform that ingests 354,770 records across 14 categories, transforms them into a star-schema data warehouse, and exposes the results through an interactive dashboard — enabling side-by-side comparison of natural risks, landmarks, and anomalies across geographic regions.
+
+**Target audience:**
+- **Insurance companies** — territorial natural risk assessment
+- **Tour operators** — finding unique attractions (caves + megaliths + thermal springs)
+- **Researchers** — correlation analysis (geological activity vs. anomalous observations)
+
+## Data ingestion
+
+The source data is a single JSON file (`strange_places_v5.2.json`, 354,770 records) from the [Strange Places](https://www.kaggle.com/datasets/lucassteuber/strange-places-mysterious-phenomena) Kaggle dataset.
+
+A Python script (`injection/load_to_stg.py`) reads the JSON file and bulk-loads it into the `raw.strange_places` table in PostgreSQL using `psycopg2` with `execute_values` in batches of 5,000 rows. The script creates the target schema and table if they don't exist, truncates stale data, and commits in a single transaction.
+
+| Aspect | Detail |
+|--------|--------|
+| Source format | JSON (single file, ~140 MB) |
+| Loader | Python + psycopg2 (`execute_values`) |
+| Batch size | 5,000 rows |
+| Target | PostgreSQL `raw.strange_places` |
+
+## Batch orchestration
+
+The entire pipeline — database provisioning, data loading, dbt transformations — is orchestrated by Docker Compose as a single batch run:
+
+1. **`postgres`** service starts and waits until healthy (pg_isready check).
+2. **`init`** service runs `entrypoint.sh`, which:
+   - Generates `dbt/profiles.yml` from environment variables
+   - Waits for PostgreSQL to be ready
+   - Runs the Python ingestion script to load JSON into the `raw` schema
+   - Installs dbt packages (`dbt deps`)
+   - Runs all dbt models (`dbt run`)
+3. **`streamlit`** service starts only after `init` completes successfully.
+
+This ensures a fully reproducible pipeline from a single `docker compose up` command.
+
+## Data warehouse
+
+PostgreSQL 16 serves as the data warehouse. The warehouse follows a three-layer architecture:
+
+```
+Source (JSON)
+    │
+    ▼
+┌──────────────────────┐
+│  stg_strange_places  │  raw, as-is (view)
+└──────────┬───────────┘
+           │  clean, typecast, enrich
+           ▼
+┌─────────────────────────────────────────┐
+│  ds_dim_category  │  ds_dim_location    │
+│  ds_dim_date      │  ds_fct_events      │  star schema (tables)
+└──────────┬──────────────────────────────┘
+           │  aggregate
+           ▼
+┌─────────────────────────────────────────┐
+│  marts_region_profile                   │
+│  marts_time_trends                      │
+│  marts_geo_heatmap                      │
+│  marts_region_comparison                │  dashboard-ready (tables)
+└─────────────────────────────────────────┘
+```
+
+### STG — Staging Layer
+
+Raw data loaded as-is from the source with no transformations (materialized as a view).
+
+### DS — Data Store Layer
+
+Cleaned, typecasted, and enriched data organized as a star schema:
+
+- **`ds_dim_category`** — 14 categories classified into 3 groups: `hazard`, `landmark`, `anomaly`
+- **`ds_dim_location`** — deduplicated coordinates with ~20 km geo-grid bucketing (geohash)
+- **`ds_dim_date`** — calendar dimension (year, month, quarter, season, day of week)
+- **`ds_fct_events`** — fact table, one row per phenomenon, linked to dimensions via surrogate keys
+
+### MARTS — Data Marts Layer
+
+Pre-aggregated tables optimized for dashboard views:
+
+| Table | Purpose |
+|-------|---------|
+| `marts_region_profile` | Region profile — event density and risk index per geo-cell |
+| `marts_time_trends` | Time trends — seasonality and year-over-year dynamics |
+| `marts_geo_heatmap` | Heatmap — event counts by geo-grid cell and category group |
+| `marts_region_comparison` | Region comparison — hazard vs. landmark vs. anomaly breakdown |
+
+## Transformations tools
+
+All transformations are implemented in **dbt** (dbt-core 1.11.8 + dbt-postgres 1.10.0):
+
+- **9 models** across 3 layers (1 staging view, 4 data store tables, 4 mart tables)
+- **dbt-utils** package for surrogate key generation (`generate_surrogate_key`)
+- **Data quality tests** defined in `schema.yml` files (unique, not_null, accepted_values, relationships)
+- Models are fully idempotent — each `dbt run` rebuilds the warehouse from scratch
+
+| Layer | Materialization | Models |
+|-------|----------------|--------|
+| `stg` | view | 1 |
+| `ds` | table | 4 |
+| `marts` | table | 4 |
+
+## Dashboard
+
+The dashboard is built with **Streamlit** + **Plotly** and has 4 pages:
+
+1. **Overview** — bar chart of events by category group, full category breakdown table
+2. **Geo Heatmap** — interactive scatter map showing event density by ~20 km grid cells, filterable by category group (hazard / landmark / anomaly)
+3. **Time Trends** — annual event volume line chart, seasonality bar chart, year-over-year change table (filterable by category)
+4. **Region Comparison** — scatter plot of Risk Index vs. Tourism Index by region, top regions table, risk-level distribution
+
+**Key metrics:**
+- Event density per geo-grid cell by category
+- Year-over-year event frequency trend
+- Hazardous vs. neutral event ratio (Risk Index)
+- Event seasonality
+- Tourism Index (landmark event proportion per region)
+
+The dashboard is accessible at `http://localhost:8501` after the pipeline completes.
 
 ## Technology Stack
 
 | Layer | Tool |
 |-------|------|
+| Containerization | Docker, Docker Compose |
 | Data ingestion | Python + psycopg2 |
-| Data warehouse | PostgreSQL |
-| Transformation | dbt (dbt-postgres) |
-| Environment management | Python venv, PowerShell (.env loader) |
+| Data warehouse | PostgreSQL 16 |
+| Transformations | dbt (dbt-core + dbt-postgres) |
+| Dashboard | Streamlit + Plotly |
 
-## Project Structure
+## How to Run
+
+### Prerequisites
+
+- Docker and Docker Compose
+
+### Quick Start
+
+```bash
+git clone <repo-url>
+cd de_zoomcamp_2026_project
+```
+
+Download the dataset file `strange_places_v5.2.json` from [Kaggle](https://www.kaggle.com/datasets/lucassteuber/strange-places-mysterious-phenomena) and place it into the `source/` directory.
+
+Then run:
+
+```bash
+docker compose up --build
+```
+
+This single command will:
+1. Start PostgreSQL and wait until it's healthy
+2. Load 354,770 records from JSON into the `raw` schema
+3. Run all dbt transformations (staging → data store → marts)
+4. Start the Streamlit dashboard
+
+Once complete, open the dashboard at **http://localhost:8501**.
+
+To stop and remove containers:
+
+```bash
+docker compose down
+```
+
+To also remove the persisted database volume:
+
+```bash
+docker compose down -v
+```
+
+### Project Structure
 
 ```
 de_zoomcamp_2026_project/
@@ -21,25 +186,31 @@ de_zoomcamp_2026_project/
 │   └── README.md                    # Dataset documentation
 ├── injection/
 │   └── load_to_stg.py              # Loads JSON → PostgreSQL raw.strange_places
-├── dbt/
-│   └── strange_places_dbt/          # dbt project
-│       ├── models/
-│       │   ├── stg/                 # Staging layer (views)
-│       │   ├── ds/                  # Data store — star schema (tables)
-│       │   └── marts/               # Data marts — dashboard-ready (tables)
-│       ├── dbt_project.yml
-│       └── packages.yml             # dbt-utils dependency
-├── load-env.ps1                     # PowerShell .env loader
-├── requirements.txt                 # Python dependencies
-└── .env                             # DB connection config (gitignored)
+├── dbt/                             # dbt project
+│   ├── models/
+│   │   ├── stg/                     # Staging layer (views)
+│   │   ├── ds/                      # Data store — star schema (tables)
+│   │   └── marts/                   # Data marts — dashboard-ready (tables)
+│   ├── dbt_project.yml
+│   └── packages.yml                 # dbt-utils dependency
+├── init/                            # Init container
+│   ├── Dockerfile
+│   └── entrypoint.sh               # Pipeline orchestration script
+├── streamlit/                       # Dashboard
+│   ├── app.py                       # Streamlit application
+│   ├── db.py                        # Database connection helper
+│   ├── Dockerfile
+│   └── requirements.txt
+├── docker-compose.yml               # Full stack definition
+└── README.md
 ```
 
 ## Data Source
 
-**Dataset:** Strange Places v5.2 — Real-World Mysterious Phenomena
+**Dataset:** [Strange Places v5.2 — Real-World Mysterious Phenomena](https://www.kaggle.com/datasets/lucassteuber/strange-places-mysterious-phenomena)
 
 - **Records:** 354,770 across 14 categories
-- **Coverage:** Global, ~1950-2026
+- **Coverage:** Global, ~1950–2026
 - **Coordinates:** 99.9% valid (354,544 georeferenced)
 - **Sources:** NASA, NOAA, USGS, BFRO, NUFORC, OpenStreetMap, Megalithic Portal, Shadowlands Index
 - **License:** CC BY 4.0
@@ -62,178 +233,3 @@ de_zoomcamp_2026_project/
 | Shipwrecks | 3,653 | NOAA |
 | Fireballs | 863 | NASA |
 | Volcanoes | 170 | USGS |
-
-### Record Schema
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `category` | string | Phenomenon type (e.g. `bigfoot_sightings`, `tornadoes`) |
-| `latitude` | float64 | Latitude coordinate |
-| `longitude` | float64 | Longitude coordinate |
-| `name` | string | Record title |
-| `description` | string | Detailed description |
-| `date` | string | Date of the event |
-
-## Problem Statement
-
-When evaluating a territory — for insurance, construction, tourism, or research — understanding its **risk and feature profile** requires combining data from dozens of separate sources. There is no single tool that overlays natural hazards (tornadoes, earthquakes, volcanoes, storms) with unique territorial features (caves, thermal springs, megaliths, shipwrecks).
-
-This project builds a dashboard that solves this by providing a unified analytical view of natural risks and anomalous activity across regions.
-
-## How to Run
-
-### Prerequisites
-
-- Python 3.10+
-- PostgreSQL 14+
-
-### 1. Set up the environment
-
-```bash
-python -m venv .venv
-source .venv/bin/activate        # Linux/macOS
-# .venv\Scripts\activate         # Windows
-pip install -r requirements.txt
-```
-
-### 2. Configure database connection
-
-Create a `.env` file:
-
-```env
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=strange_places_dwh
-DB_USER=admin
-DB_PASSWORD=admin
-DB_SCHEMA=raw
-```
-
-Load variables into the shell:
-
-```powershell
-# PowerShell
-. .\load-env.ps1
-```
-
-### 3. Load data into staging
-
-```bash
-python injection/load_to_stg.py
-```
-
-This reads `source/strange_places_v5.2.json` and loads 354,770 records into `raw.strange_places` in batches of 5,000.
-
-### 4. Run dbt transformations
-
-```bash
-cd dbt/strange_places_dbt
-dbt deps        # install dbt-utils
-dbt run         # build all models
-dbt test        # run data quality tests
-```
-
-## Data Warehouse Model
-
-The warehouse follows a three-layer architecture: **STG** (staging) → **DS** (data store) → **MARTS** (data marts).
-
-### Data Flow
-
-```
-Source (JSON)
-    │
-    ▼
-┌──────────────────────┐
-│  stg_strange_places   │  raw, as-is
-└──────────┬───────────┘
-           │  clean, typecast, enrich
-           ▼
-┌─────────────────────────────────────────┐
-│  ds_dim_category  │  ds_dim_location    │
-│  ds_dim_date      │  ds_fct_events      │  star schema
-└──────────┬──────────────────────────────┘
-           │  aggregate
-           ▼
-┌─────────────────────────────────────────┐
-│  marts_region_profile                   │
-│  marts_time_trends                      │
-│  marts_geo_heatmap                      │
-│  marts_region_comparison                │  dashboard-ready
-└─────────────────────────────────────────┘
-```
-
-### STG — Staging Layer
-
-Raw data loaded as-is from the source with no transformations.
-
-| Table | Fields |
-|-------|--------|
-| `stg_strange_places` | `category`, `latitude`, `longitude`, `name`, `description`, `date` (all as string/raw types), `loaded_at` |
-
-### DS — Data Store Layer
-
-Cleaned, typecasted, and enriched data organized as a star schema.
-
-#### Dimensions
-
-| Table | Fields | Logic |
-|-------|--------|-------|
-| `ds_dim_category` | `category_id`, `category_name`, `category_group`, `source_authority` | Lookup of 14 categories classified into risk groups |
-| `ds_dim_location` | `location_id`, `latitude`, `longitude`, `geo_hash` | Deduplicated coordinates with ~20km geo-grid bucketing |
-| `ds_dim_date` | `date_id`, `full_date`, `year`, `month`, `day`, `quarter`, `day_of_week`, `season` | Calendar dimension derived from the `date` field |
-
-#### Facts
-
-| Table | Fields | Logic |
-|-------|--------|-------|
-| `ds_fct_events` | `event_id`, `category_id` (FK), `location_id` (FK), `date_id` (FK), `event_name`, `event_description` | One row per phenomenon, linked to dimensions via surrogate keys |
-
-#### Category Group Classification
-
-| Group | Categories |
-|-------|-----------|
-| **hazard** | tornadoes, storm_events, earthquakes, volcanoes, fireballs |
-| **landmark** | caves, megalithic_sites, ghost_towns, thermal_springs, shipwrecks, meteorite_landings |
-| **anomaly** | ufo_sightings, bigfoot_sightings, haunted_places |
-
-### MARTS — Data Marts Layer
-
-Pre-aggregated tables optimized for specific dashboard views.
-
-| Table | Fields | Purpose |
-|-------|--------|---------|
-| `marts_region_profile` | `geo_hash`, `category_group`, `category_name`, `event_count`, `hazard_count`, `risk_index` | Region profile — event density and risk index |
-| `marts_time_trends` | `year`, `month`, `season`, `category_name`, `category_group`, `event_count`, `yoy_change_pct` | Time trends — seasonality and year-over-year dynamics |
-| `marts_geo_heatmap` | `geo_hash`, `latitude`, `longitude`, `category_group`, `event_count` | Heatmap data — aggregation by geo-grid cells |
-| `marts_region_comparison` | `geo_hash`, `hazard_count`, `landmark_count`, `anomaly_count`, `total_count`, `risk_index`, `tourism_index` | Region comparison — hazard vs. landmark vs. anomaly breakdown |
-
-## Dashboard: Natural Risk & Anomalous Activity Map
-
-### Key Views
-
-1. **Density Heatmap** — Interactive map with clustered phenomena. Category filters toggle layers (hazards only, landmarks only, etc.).
-
-2. **Region Profile** — Select an area to see:
-   - Category distribution (radar / bar chart)
-   - Temporal trends — is tornado frequency increasing? Are earthquakes becoming more common?
-   - Risk index — weighted score based on hazardous event density
-
-3. **Time Trends** — Seasonality and long-term trend analysis (e.g. tornadoes by month, UFO sightings by year).
-
-4. **Region Comparison** — Side-by-side comparison of two territories across all categories: "Where is it safer? Where is it more interesting for tourism?"
-
-### Key Metrics
-
-| Metric | Derived From |
-|--------|-------------|
-| Event density per geo-grid cell by category | `latitude`, `longitude`, `category` |
-| Year-over-year event frequency trend | `date`, `category` |
-| Hazardous vs. neutral event ratio | `category` (risk classification) |
-| Event seasonality | `date` (month extraction) |
-| Tourism index | landmark event proportion per region |
-
-### Target Audience
-
-- **Insurance companies** — territorial natural risk assessment
-- **Tour operators** — finding unique attractions (caves + megaliths + thermal springs)
-- **Researchers** — correlation analysis (geological activity vs. anomalous observations)
