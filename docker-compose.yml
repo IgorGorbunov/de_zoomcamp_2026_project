@@ -1,0 +1,55 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: strange_places_dwh
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+    ports:
+      - "5432:5432"
+    shm_size: 256mb
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d strange_places_dwh"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  init:
+    build:
+      context: ./init
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: strange_places_dwh
+      DB_USER: admin
+      DB_PASSWORD: admin
+    volumes:
+      - ./source:/app/source:ro
+      - ./injection:/app/injection:ro
+      - ./dbt:/app/dbt
+
+  streamlit:
+    build:
+      context: ./streamlit
+    ports:
+      - "8501:8501"
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: strange_places_dwh
+      DB_USER: admin
+      DB_PASSWORD: admin
+    volumes:
+      - ./streamlit/app.py:/app/app.py
+      - ./streamlit/db.py:/app/db.py
+
+volumes:
+  pgdata:

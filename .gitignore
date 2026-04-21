@@ -5,3 +5,7 @@ source/strange_places_v5.2.json
 .env
 dbt\strange_places_dbt\logs\dbt.log
 dbt\strange_places_dbt\.user.yml
+evidence\sources\*\connection.options.yaml
+evidence\node_modules
+evidence\.evidence
+evidence\build

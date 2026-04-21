@@ -2,11 +2,11 @@ strange_places_dbt:
   outputs:
     dev:
       type: postgres
-      host: "{{ env_var('DBT_PG_HOST') }}"
-      port: "{{ env_var('DBT_PG_PORT') | int }}"
-      dbname: "{{ env_var('DBT_PG_DBNAME') }}"
-      schema: "{{ env_var('DBT_PG_SCHEMA') }}"
-      user: "{{ env_var('DBT_PG_USER') }}"
-      pass: "{{ env_var('DBT_PG_PASSWORD') }}"
+      host: postgres
+      port: 5432
+      dbname: strange_places_dwh
+      user: admin
+      pass: admin
+      schema: dbt
       threads: 4
   target: dev
